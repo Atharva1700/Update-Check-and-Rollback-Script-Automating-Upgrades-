@@ -1,0 +1,38 @@
+name: upgrade-and-rollback
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  upgrade:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Tests
+        run: |
+          pip install pytest
+          python -m pytest -q
+      - name: Good upgrade must succeed (exit 0)
+        run: |
+          echo v1.0 > service/current.txt
+          python -m upgrader.upgrade --target v1.1 --port 8201 --log upgrade.log.jsonl
+      - name: Bad upgrade must roll back (exit 2) and leave v1.1 live
+        run: |
+          set +e
+          python -m upgrader.upgrade --target v1.2-bad --port 8202 --log upgrade.log.jsonl
+          code=$?
+          set -e
+          test "$code" -eq 2
+          test "$(cat service/current.txt)" = "v1.1"
+      - name: Keep the upgrade log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: upgrade-log
+          path: upgrade.log.jsonl
+          if-no-files-found: ignore
